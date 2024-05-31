@@ -34,6 +34,7 @@ option(GFS_TYPES   "Enable compiler definition -DGFS_TYPES"                OFF)
 option(use_WRTCOMP "Enable compiler definition -Duse_WRTCOMP"              OFF)
 option(INTERNAL_FILE_NML     "Enable compiler definition -DINTERNAL_FILE_NML"      ON)
 option(ENABLE_QUAD_PRECISION "Enable compiler definition -DENABLE_QUAD_PRECISION"  ON)
+option(AM4_CHEM    "Enable compiler definition -DAM4_CHEM"                 OFF)
 
 find_package(MPI REQUIRED)
 if(OPENMP)
@@ -165,6 +166,10 @@ endif()
 
 if(OPENMP)
   list(APPEND fv3_defs OPENMP)
+endif()
+
+if(AM4_CHEM)
+  list(APPEND fv3_defs AM4_CHEM)
 endif()
 
 # Obtain compiler-specific flags

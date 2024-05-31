@@ -178,7 +178,7 @@ module fv_diagnostics_mod
  logical :: m_calendar
  integer  sphum, liq_wat, ice_wat, cld_amt    ! GFDL physics
  integer  rainwat, snowwat, graupel, hailwat
- integer  dust2, seas3, bc1, oc1, sulf
+ integer  dust2, seas3, bc1, oc1, sulf, so2, ch4,co2
 #ifdef MULTI_GASES
  integer  spo, spo2, spo3
 #else
@@ -4455,7 +4455,7 @@ contains
  real(kind=R_GRID), intent(IN):: area(is-n_g:ie+n_g,js-n_g:je+n_g)
  type(domain2d), intent(INOUT) :: domain
 ! Local:
- integer, parameter :: chmn=5
+ integer, parameter :: chmn=8  ! diag more
  real psq(is:ie,js:je,nwat), psqv(is:ie,js:je),pschem(is:ie,js:je,chmn)
  real q_strat(is:ie,js:je)
  real qtot(nwat), qwat
@@ -4559,7 +4559,8 @@ if (chmn > 0 .and. ntracers > 20) then
     seas3   = get_tracer_index (MODEL_ATMOS, 'seas3')
     bc1     = get_tracer_index (MODEL_ATMOS, 'bc1')
     oc1     = get_tracer_index (MODEL_ATMOS, 'oc1')
-    sulf     = get_tracer_index (MODEL_ATMOS, 'sulf')
+    sulf    = get_tracer_index (MODEL_ATMOS, 'sulf')
+    so2     = get_tracer_index (MODEL_ATMOS, 'so2')
 
     pschem(:,:,:) = 0.
     call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,dust2  ), pschem(is,js,1  ))
@@ -4567,7 +4568,15 @@ if (chmn > 0 .and. ntracers > 20) then
     call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,bc1  ), pschem(is,js,3  ))
     call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,oc1  ), pschem(is,js,4  ))
     call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,sulf  ), pschem(is,js,5  ))
+    call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,so2  ), pschem(is,js,6  ))
 
+#ifdef AM4_CHEM
+    ch4     = get_tracer_index (MODEL_ATMOS, 'ch4')
+    co2     = get_tracer_index (MODEL_ATMOS, 'co2')
+
+    call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,ch4  ), pschem(is,js,7  ))
+    call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,co2  ), pschem(is,js,8  ))
+#endif
 
 !!-------------------
 !! Check global means
@@ -4586,6 +4595,11 @@ if (chmn > 0 .and. ntracers > 20) then
     write(*,*) 'Total bc1',   trim(gn), '=', chemtot(3)*ginv
     write(*,*) 'Total oc1',   trim(gn), '=', chemtot(4)*ginv
     write(*,*) 'Total sulf',   trim(gn), '=', chemtot(5)*ginv
+    write(*,*) 'Total SO2',   trim(gn), '=', chemtot(6)*ginv
+#ifdef AM4_CHEM
+    write(*,*) 'Total CH4',   trim(gn), '=', chemtot(7)*ginv
+    write(*,*) 'Total CO2',   trim(gn), '=', chemtot(8)*ginv
+#endif
     write(*,*) '---------------------------------------------'
  endif
 

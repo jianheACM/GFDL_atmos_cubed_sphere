@@ -461,6 +461,7 @@ contains
 ! local:
     real, dimension(:), allocatable:: ak, bk
     real, dimension(:,:), allocatable:: wk2, ps, oro_g
+    real, dimension(:,:), allocatable:: ps_rst  ! ps from restart files
     real, dimension(:,:,:), allocatable:: ud, vd, u_w, v_w, u_s, v_s, omga, temp
     real, dimension(:,:,:), allocatable:: zh(:,:,:)  ! 3D height at 65 edges
     real, dimension(:,:,:,:), allocatable:: q
@@ -488,14 +489,16 @@ contains
     integer :: levp = 64
     logical :: checker_tr = .false.
     integer :: nt_checker = 0
+    logical :: read_chemrst = .false.  ! flag for input chem from restart file
     character(len=20) :: suffix
     character(len=1) :: tile_num
     real(kind=R_GRID), dimension(2):: p1, p2, p3
     real(kind=R_GRID), dimension(3):: e1, e2, ex, ey
     integer:: i,j,k,nts, ks, naxis_dims
     integer:: liq_wat, ice_wat, rainwat, snowwat, graupel, hailwat, tke, ntclamt
+    integer:: ntso2 ! first chem tracer for cplchp
     namelist /external_ic_nml/ filtered_terrain, levp, gfs_dwinds, &
-                               checker_tr, nt_checker
+                               checker_tr, nt_checker, read_chemrst
 
     ! variables for reading the dimension from the gfs_ctrl
     integer ncid, levsp
@@ -508,6 +511,14 @@ contains
     unit = stdlog()
     call write_version_number ( 'EXTERNAL_IC_MOD::get_nggps_ic', version )
     write(unit, nml=external_ic_nml)
+
+    if(is_master()) then
+      if (read_chemrst) then
+        write(*,*) 'Read chem tracers in external_ic'
+      else
+        write(*,*) 'Read met tracers only in external_ic'
+      endif
+    endif
 
     remap = .true.
     if (Atm%flagstruct%external_eta) then
@@ -573,7 +584,7 @@ contains
 ! read in GFS IC
     call mpp_error(NOTE,'==> External_ic::get_nggps_ic: Reading processed IC')
     call mpp_error(NOTE,'==> External_ic::get_nggps_ic: IC has ', levp ,' levels' )
-    call read_gfs_ic()
+    call read_gfs_ic(read_chemrst)
     !!! If a nested grid, save the filled coarse-grid topography for blending
     if (Atm%neststruct%nested) then
       allocate(phis_coarse(isd:ied,jsd:jed))
@@ -794,6 +805,8 @@ contains
     graupel = get_tracer_index(MODEL_ATMOS, 'graupel')
     hailwat = get_tracer_index(MODEL_ATMOS, 'hailwat')
     ntclamt = get_tracer_index(MODEL_ATMOS, 'cld_amt')
+    ntso2   = get_tracer_index(MODEL_ATMOS, 'so2')
+
     if (data_source_fv3gfs) then
     do k=1,npz
       do j=js,je
@@ -840,6 +853,10 @@ contains
     enddo
     endif   !end trim(source) test
 
+    !remap chem tracers
+    if (read_chemrst) then
+       call remap_scalar_chem(Atm,levp,npz,ntracers,ntprog,ps_rst,q)
+    endif
 
     tke = get_tracer_index(MODEL_ATMOS, 'sgs_tke')
     if (tke > 0) then
@@ -870,14 +887,16 @@ contains
     deallocate (q )
     if (data_source_fv3gfs) deallocate (temp)
     deallocate (omga)
-
+    deallocate (ps_rst)  !
 
     contains
 
-      subroutine read_gfs_ic()
+      subroutine read_gfs_ic(read_chemrst)
         !
         !--- read in ak and bk from the gfs control file using fms_io read_data ---
         !
+        logical,intent(in) :: read_chemrst
+
         allocate (wk2(levp+1,2))
         allocate (ak(levp+1))
         allocate (bk(levp+1))
@@ -895,6 +914,7 @@ contains
 
         allocate (zh(is:ie,js:je,levp+1))   ! SJL
         allocate (ps(is:ie,js:je))
+        allocate (ps_rst(is:ie,js:je))
         allocate (omga(is:ie,js:je,levp))
         allocate (q (is:ie,js:je,levp,ntracers))
         allocate ( u_w(is:ie+1, js:je, 1:levp) )
@@ -925,6 +945,10 @@ contains
           call register_axis(GFS_restart, 'levp', size(zh,3))
 
           call register_restart_field(GFS_restart, 'ps', ps, dim_names_2d)
+          ! ps from restart file
+          if (read_chemrst) then
+            call register_restart_field(GFS_restart, 'ps_rst', ps_rst, dim_names_2d)
+          endif
           ! D-grid west  face tangential wind component (m/s)
           call register_restart_field(GFS_restart, 'u_w', u_w, dim_names_3d)
           ! D-grid west  face normal wind component (m/s)
@@ -2963,6 +2987,8 @@ contains
 !!! High-precision
   integer i,j,k,l,m, k2,iq
   integer  sphum, liq_wat, ice_wat, rainwat, snowwat, graupel, hailwat, cld_amt, sgs_tke
+!!! First chem tracer
+  integer ntso2, nvmet
 #ifdef MULTI_GASES
   integer  spo, spo2, spo3
 #else
@@ -2991,6 +3017,14 @@ contains
   o3mr    = get_tracer_index(MODEL_ATMOS, 'o3mr')
 #endif
   sgs_tke = get_tracer_index(MODEL_ATMOS, 'sgs_tke')
+
+  ! first chem tracer in cplchp
+  ntso2 = get_tracer_index(MODEL_ATMOS, 'so2')
+  if (ntso2 > 0) then
+    nvmet = ntso2-1     ! last index for metvar
+  else
+    nvmet = ncnst
+  endif
 
   if (mpp_pe()==1) then
     print *, 'In remap_scalar:'
@@ -3029,7 +3063,7 @@ contains
 
 !$OMP parallel do default(none) &
 !$OMP             shared(sphum,liq_wat,rainwat,ice_wat,snowwat,graupel,hailwat,data_source_fv3gfs,&
-!$OMP                    cld_amt,ncnst,npz,is,ie,js,je,km,k2,ak0,bk0,psc,zh,omga,qa,Atm,z500,t_in) &
+!$OMP                    cld_amt,ntso2,nvmet,ncnst,npz,is,ie,js,je,km,k2,ak0,bk0,psc,zh,omga,qa,Atm,z500,t_in) &
 !$OMP             private(l,m,pst,pn,gz,pe0,pn0,pe1,pn1,dp2,qp,qn1,gz_fv)
 
   do 5000 j=js,je
@@ -3095,7 +3129,7 @@ contains
      enddo
 
 ! map tracers
-      do iq=1,ncnst
+      do iq=1,nvmet  ! only met var
         if (floor(qa(is,j,1,iq)) == -1000) cycle !skip missing scalars [floor(-999.99) is -1000]
          do k=1,km
             do i=is,ie
@@ -3435,6 +3469,82 @@ contains
 
  end subroutine remap_scalar_single
 
+! for chem tracers only
+subroutine remap_scalar_chem(Atm,km,npz,ncnst,ntprog,ps_rst,qa)
+
+  type(fv_atmos_type), intent(inout) :: Atm
+  integer, intent(in):: km,npz,ncnst,ntprog
+  real,    intent(in), dimension(Atm%bd%is:Atm%bd%ie,Atm%bd%js:Atm%bd%je):: ps_rst
+  real,    intent(in), dimension(Atm%bd%is:Atm%bd%ie,Atm%bd%js:Atm%bd%je,km,ncnst):: qa
+! local:
+  real, dimension(Atm%bd%is:Atm%bd%ie,npz+1):: pe0
+  real, dimension(Atm%bd%is:Atm%bd%ie,npz):: qn1, dp2
+  real, dimension(Atm%bd%is:Atm%bd%ie,npz+1):: pe1
+  real qp(Atm%bd%is:Atm%bd%ie,npz)
+  real wk(Atm%bd%is:Atm%bd%ie,Atm%bd%js:Atm%bd%je)
+!!! High-precision
+  integer i,j,k, k2, l, iq
+  integer :: is,  ie,  js,  je
+!!! First chem tracer
+  integer ntso2
+
+  is  = Atm%bd%is
+  ie  = Atm%bd%ie
+  js  = Atm%bd%js
+  je  = Atm%bd%je
+
+  !JianHe: first chem tracer
+  ntso2 = get_tracer_index(MODEL_ATMOS, 'so2')
+
+  do 5000 j=js,je
+    do k=1,npz+1    !read chem rst at same model level
+      do i=is,ie
+        pe0(i,k) = Atm%ak(k) + Atm%bk(k)*ps_rst(i,j)
+      enddo
+    enddo
+
+    do k=1,npz+1
+      do i=is,ie
+        pe1(i,k) = Atm%ak(k) + Atm%bk(k)*Atm%ps(i,j)
+      enddo
+    enddo
+
+! JianHe: should we use below dp2 or Atm%delp?
+     do k=1,npz
+        do i=is,ie
+           dp2(i,k) = pe1(i,k+1) - pe1(i,k)
+        enddo
+     enddo
+
+    ! map chem tracers
+    do iq=ntso2,ncnst
+      do k=1,npz
+        do i=is,ie
+           qp(i,k) = qa(i,j,k+1,iq)  ! skip ic top (=0)
+        enddo
+      enddo
+      call mappm(npz, pe0, qp, npz, pe1,  qn1, is,ie, 0, 8, Atm%ptop)
+      call fillz(ie-is+1, npz, 1, qn1, dp2)
+
+! The HiRam step of blending model sphum with NCEP data is obsolete because
+! nggps is always cold starting...
+      do k=1,npz
+        do i=is,ie
+          if (iq <= ntprog) then
+             Atm%q(i,j,k,iq) = qn1(i,k)
+          else
+             Atm%qdiag(i,j,k,iq) = qn1(i,k)
+          endif
+        enddo
+      enddo
+   enddo
+
+5000 continue
+
+   call p_maxmin('chem remap', Atm%q(is:ie,js:je,1:npz,iq), is, ie, js, je, npz, 1.)
+
+ end subroutine remap_scalar_chem
+!
 
  subroutine mp_auto_conversion(ql, qr, qi, qs)
  real, intent(inout):: ql, qr, qi, qs

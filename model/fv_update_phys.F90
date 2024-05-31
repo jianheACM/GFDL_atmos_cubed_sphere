@@ -256,7 +256,8 @@ module fv_update_phys_mod
     do m=1,nq
        call get_tracer_names (MODEL_ATMOS, m, name = tracer_name,  &
             units = tracer_units)
-       if ( trim(tracer_units) .eq. 'vmr' ) then
+       !In the current field table, we set ppm for gases
+       if ((trim(tracer_units) .eq. 'vmr') .or. (trim(tracer_units) .eq. 'ppm')) then
           conv_vmr_mmr(m) = .true.
        else
           conv_vmr_mmr(m) = .false.
