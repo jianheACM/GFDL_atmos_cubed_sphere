@@ -467,7 +467,7 @@ contains
     real, dimension(:,:,:,:), allocatable:: q
     real, dimension(:,:), allocatable :: phis_coarse ! lmh
     real rdg, wt, qt, m_fac, pe1
-    integer:: npx, npy, npz, itoa, nt, ntprog, ntdiag, ntracers, ntrac, iq
+    integer:: npx, npy, npz, itoa, nt, ntprog, ntdiag, ntracers, ntrac, iq, nq
     integer :: is,  ie,  js,  je
     integer :: isd, ied, jsd, jed
     integer :: ios, ierr, unit, id_res
@@ -555,6 +555,7 @@ contains
 
     allocate(pes(mpp_npes()))
     call mpp_get_current_pelist(pes)
+
     if( open_file(Gfs_ctl, fn_gfs_ctl, "read", pelist=pes) ) then
 !--- read in the number of tracers in the NCEP NGGPS ICs
       call read_data (Gfs_ctl, 'ntrac', ntrac)
@@ -651,6 +652,13 @@ contains
     call mpp_error(NOTE,'==> External_ic::get_nggps_ic: using tiled data file '//trim(fn_oro_ics)//' for NGGPS IC')
 
     ! initialize all tracers to default values prior to being input
+    !JianHe:
+    nq = size(Atm%q,4)
+    call mpp_error(NOTE,'==> External_ic::get_nggps_ic: Atm%q array has ', nq, ' tracers')
+
+    nq = size(Atm%qdiag,4)
+    call mpp_error(NOTE,'==> External_ic::get_nggps_ic: Atm%qdiag array has ', nq, ' tracers')
+
     do nt = 1, ntprog
       call get_tracer_names(MODEL_ATMOS, nt, tracer_name)
       ! set all tracers to an initial profile value
@@ -843,7 +851,8 @@ contains
              qt = wt*(1. + sum(Atm%q(i,j,k,2:Atm%flagstruct%nwat)))
           endif
           m_fac = wt / qt
-          do iq=1,ntracers
+          !JianHe: q array only for prognostics
+          do iq=1,ntprog  !ntracers
              Atm%q(i,j,k,iq) = m_fac * Atm%q(i,j,k,iq)
           enddo
           Atm%delp(i,j,k) = qt
@@ -973,6 +982,7 @@ contains
 
             call get_tracer_names(MODEL_ATMOS, nt, tracer_name)
             call register_restart_field(GFS_restart, trim(tracer_name), q(:,:,:,nt), dim_names_3d3, is_optional=.true.)
+
           enddo
 
           ! read in the gfs_data and free the restart type to be re-used by the nest
@@ -3129,7 +3139,7 @@ contains
      enddo
 
 ! map tracers
-      do iq=1,nvmet  ! only met var
+      do iq=1,nvmet  ! JianHe, only for met var
         if (floor(qa(is,j,1,iq)) == -1000) cycle !skip missing scalars [floor(-999.99) is -1000]
          do k=1,km
             do i=is,ie
