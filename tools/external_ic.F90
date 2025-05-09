@@ -3551,7 +3551,7 @@ subroutine remap_scalar_chem(Atm,km,npz,ncnst,ntprog,ps_rst,qa)
 
 5000 continue
 
-   call p_maxmin('chem remap', Atm%q(is:ie,js:je,1:npz,iq), is, ie, js, je, npz, 1.)
+   !call p_maxmin('chem remap', Atm%q(is:ie,js:je,1:npz,iq), is, ie, js, je, npz, 1.)
 
  end subroutine remap_scalar_chem
 !
