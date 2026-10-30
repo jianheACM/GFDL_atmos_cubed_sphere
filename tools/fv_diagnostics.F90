@@ -4461,6 +4461,12 @@ contains
  real qtot(nwat), qwat
  real psmo, totw, psdry
  integer k, n, kstrat
+ integer :: ichem, itracer
+ character(len=16), parameter :: chem_names(8) = &
+      [character(len=16) :: 'dust2', 'seas3', 'bc1', 'oc1', 'sulf', 'so2', 'ch4', 'co2']
+ real, parameter :: chem_mw(8) = [0., 0., 0., 0., 0., 64.066, 16.043, 44.01]
+ real :: chem_column(is:ie,js:je), chem_total, chem_scale
+ character(len=256) :: chem_units
 
 !Needed when calling prt_mass in fv_restart?
     sphum   = get_tracer_index (MODEL_ATMOS, 'sphum')
@@ -4549,6 +4555,38 @@ contains
           write(*,*) 'GFS condensate (kg/m^2)', trim(gn), '=', qtot(liq_wat)*ginv
      endif
   endif
+
+ ! Integrate only registered prognostic tracers present in this q array.
+ ! Gas volume mixing ratios use molecular weight relative to dry air.
+ do ichem=1,8
+#ifndef AM4_CHEM
+   if (ichem > 6) cycle
+#endif
+   itracer = get_tracer_index(MODEL_ATMOS, trim(chem_names(ichem)))
+   if (itracer < 1 .or. itracer > nq) cycle
+   call get_tracer_names(MODEL_ATMOS, itracer, units=chem_units)
+   select case (trim(chem_units))
+   case ('kg/kg', 'kg kg-1', 'kg/kg-air')
+     chem_scale = 1.
+   case ('ug/kg', 'ug kg-1', 'ug/kg-air')
+     chem_scale = 1.e-9
+   case ('ppm', 'ppmv')
+     if (chem_mw(ichem) <= 0.) cycle
+     chem_scale = 1.e-6 * chem_mw(ichem)/28.9647
+   case ('vmr', 'mol/mol', 'mol mol-1')
+     if (chem_mw(ichem) <= 0.) cycle
+     chem_scale = chem_mw(ichem)/28.9647
+   case default
+     if (master) write(*,*) 'Skipping chemical mass diagnostic: ', &
+          trim(chem_names(ichem)), ' unsupported units: ', trim(chem_units)
+     cycle
+   end select
+   call z_sum(is, ie, js, je, km, n_g, delp, q(:,:,:,itracer), chem_column)
+   chem_column = chem_column * chem_scale
+   chem_total = g_sum(domain, chem_column, is, ie, js, je, n_g, area, 0)
+   if (master) write(*,*) 'Total chemical mass (kg) ', trim(chem_names(ichem)), &
+        ' ', trim(gn), ' = ', chem_total*ginv
+ enddo
 
  end subroutine prt_mass
 

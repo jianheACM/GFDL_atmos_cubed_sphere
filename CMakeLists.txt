@@ -38,6 +38,8 @@ option(HYDRO       "Enable compiler definition -DHYDRO"                    OFF)
 option(ENABLE_RRFS_WAR "Enable independent parallel I/O when io_layout=1,1 -DENABLE_RRFS_WAR"  OFF)
 option(ENABLE_PARALLELRESTART "Enable collective parallel reads -DENABLE_PARALLELRESTART"  OFF)
 
+option(AM4_CHEM "Enable AM4 chemistry diagnostics" OFF)
+
 find_package(MPI REQUIRED)
 if(OPENMP)
   find_package(OpenMP REQUIRED)
@@ -180,6 +182,10 @@ endif()
 
 if(OPENMP)
   list(APPEND fv3_defs OPENMP)
+endif()
+
+if(AM4_CHEM)
+  list(APPEND fv3_defs AM4_CHEM)
 endif()
 
 # Obtain compiler-specific flags
