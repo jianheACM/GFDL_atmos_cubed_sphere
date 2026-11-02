@@ -4467,6 +4467,7 @@ contains
  real, parameter :: chem_mw(8) = [0., 0., 0., 0., 0., 64.066, 16.043, 44.01]
  real :: chem_column(is:ie,js:je), chem_total, chem_scale
  character(len=256) :: chem_units
+ character(len=128) :: chem_tracer_name
 
 !Needed when calling prt_mass in fv_restart?
     sphum   = get_tracer_index (MODEL_ATMOS, 'sphum')
@@ -4564,7 +4565,8 @@ contains
 #endif
    itracer = get_tracer_index(MODEL_ATMOS, trim(chem_names(ichem)))
    if (itracer < 1 .or. itracer > nq) cycle
-   call get_tracer_names(MODEL_ATMOS, itracer, units=chem_units)
+   call get_tracer_names(MODEL_ATMOS, itracer, &
+                      name=chem_tracer_name, units=chem_units)
    select case (trim(chem_units))
    case ('kg/kg', 'kg kg-1', 'kg/kg-air')
      chem_scale = 1.
