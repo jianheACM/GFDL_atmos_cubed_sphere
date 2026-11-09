@@ -223,7 +223,7 @@ contains
     character(len=3) :: gn
     character(len=6) :: gnn
 
-    integer :: npts, sphum
+    integer :: npts, sphum, ts1mmr, ts2mmr, ts3mmr, ts4mmr
     integer, allocatable :: pelist(:), global_pelist(:), smoothed_topo(:)
     real    :: sumpertn
     real    :: zvir
@@ -263,6 +263,11 @@ contains
        npz = Atm(n)%npz
        ntprog = size(Atm(n)%q,4)
        ntdiag = size(Atm(n)%qdiag,4)
+
+       ts1mmr = get_tracer_index(MODEL_ATMOS, 'ts1mmr')
+       ts2mmr = get_tracer_index(MODEL_ATMOS, 'ts2mmr')
+       ts3mmr = get_tracer_index(MODEL_ATMOS, 'ts3mmr')
+       ts4mmr = get_tracer_index(MODEL_ATMOS, 'ts4mmr')
 
        !1. sort out restart, external_ic, and cold-start (idealized)
        if (Atm(n)%neststruct%nested) then
@@ -346,6 +351,25 @@ contains
              if( is_master() ) write(*,*) 'Calling get_external_ic'
              call get_external_ic(Atm(n), .not. do_read_restart)
              if( is_master() ) write(*,*) 'IC generated from the specified external source'
+             do j=jsc,jec
+              do i=isc,iec
+               Atm(n)%ps_rst(i,j) = Atm(n)%ptop
+              enddo
+
+              do k=1,npz
+               do i=isc,iec
+                Atm(n)%ps_rst(i,j) = Atm(n)%ps_rst(i,j) + Atm(n)%delp(i,j,k)
+               enddo
+              enddo
+             enddo
+
+             call pmaxmn_g('PS ', Atm(n)%ps_rst,   isc, iec, jsc, jec, 1, 0.01   , Atm(n)%gridstruct%area_64, Atm(n)%domain)  ! 0
+
+             call pmaxmn_z(Atm(n)%delp, 'ts1mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts1mmr:ts1mmr), isc, iec, jsc, jec, npz, &
+                        rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+
+             call pmaxmn_z(Atm(n)%delp, 'ts3mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts3mmr:ts3mmr), isc, iec, jsc, jec, npz, &
+                        rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
 
              !4. Restart
           elseif (do_read_restart) then
@@ -494,11 +518,40 @@ contains
                       isc, jsc, iec, jec )
                  if( is_master() ) write(*,*) 'Back from read_da_inc_cubed_sphere',Atm(n)%pt(i,j,k)
               else
+
+                 if( is_master() ) write(*,*) 'Before read_da_inc'
+                 do j=jsc,jec
+                  do i=isc,iec
+                   Atm(n)%ps_rst(i,j) = Atm(n)%ptop
+                  enddo
+
+                  do k=1,npz
+                   do i=isc,iec
+                    Atm(n)%ps_rst(i,j) = Atm(n)%ps_rst(i,j) + Atm(n)%delp(i,j,k)
+                   enddo
+                  enddo
+                 enddo
+                 call pmaxmn_g('PS', Atm(n)%ps_rst,   isc, iec, jsc, jec, 1, 0.01,  Atm(n)%gridstruct%area_64, Atm(n)%domain)
+
+                 call pmaxmn_z(Atm(n)%delp, 'ts1mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts1mmr:ts1mmr), isc, iec, jsc, jec, npz, &
+                        rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+
+                 call pmaxmn_z(Atm(n)%delp, 'ts3mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts3mmr:ts3mmr), isc, iec, jsc, jec, npz, &
+                        rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+
+
                  if( is_master() ) write(*,*) 'Calling read_da_inc',Atm(n)%pt(i,j,k)
                  call read_da_inc(Atm(n), Atm(n)%domain, Atm(n)%bd, Atm(n)%npz, Atm(n)%ncnst, &
                       Atm(n)%u, Atm(n)%v, Atm(n)%q, Atm(n)%delp, Atm(n)%pt, Atm(n)%delz, isd, jsd, ied, jed, &
                       isc, jsc, iec, jec )
                  if( is_master() ) write(*,*) 'Back from read_da_inc',Atm(n)%pt(i,j,k)
+
+                 if( is_master() ) write(*,*) 'After read_da_inc'
+                 call pmaxmn_z(Atm(n)%delp, 'ts1mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts1mmr:ts1mmr), isc, iec, jsc, jec, npz, &
+                        rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+                 call pmaxmn_z(Atm(n)%delp, 'ts3mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts3mmr:ts3mmr), isc, iec, jsc, jec, npz, &
+                        rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+
               endif
            endif
            !====== end PJP added DA functionailty======
@@ -632,6 +685,10 @@ contains
        ntprog = size(Atm(n)%q,4)
        ntdiag = size(Atm(n)%qdiag,4)
 
+       ts1mmr = get_tracer_index(MODEL_ATMOS, 'ts1mmr')
+       ts2mmr = get_tracer_index(MODEL_ATMOS, 'ts2mmr')
+       ts3mmr = get_tracer_index(MODEL_ATMOS, 'ts3mmr')
+       ts4mmr = get_tracer_index(MODEL_ATMOS, 'ts4mmr')
 
        if (ideal_test_case(n) == 0) then
 #ifdef SW_DYNAMICS
@@ -642,6 +699,13 @@ contains
           else
              Atm(n)%ptop = Atm(n)%ak(1);  Atm(n)%ks = 0
           endif
+
+          if( is_master() ) write(*,*) 'Before p_var'
+          call pmaxmn_z(Atm(n)%delp, 'ts1mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts1mmr:ts1mmr), isc, iec, jsc, jec, npz, &
+                        rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+          call pmaxmn_z(Atm(n)%delp, 'ts3mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts3mmr:ts3mmr), isc, iec, jsc, jec, npz, &
+                        rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+
           call p_var(npz,         isc,         iec,       jsc,     jec,   Atm(n)%ptop,     ptop_min,  &
                Atm(n)%delp, Atm(n)%delz, Atm(n)%pt, Atm(n)%ps, Atm(n)%pe, Atm(n)%peln,   &
                Atm(n)%pk,   Atm(n)%pkz, kappa, Atm(n)%q, Atm(n)%ng, &
@@ -649,6 +713,7 @@ contains
                Atm(n)%flagstruct%adjust_dry_mass,  Atm(n)%flagstruct%mountain, &
                Atm(n)%flagstruct%moist_phys,  Atm(n)%flagstruct%hydrostatic, &
                Atm(n)%flagstruct%nwat, Atm(n)%domain, Atm(1)%flagstruct%adiabatic, Atm(n)%flagstruct%make_nh)
+
 #endif
           if ( grid_type < 7 .and. grid_type /= 4 ) then
              ! Fill big values in the non-existing corner regions:
@@ -686,6 +751,15 @@ contains
           endif
 
        endif
+
+       if( is_master() ) write(*,*) 'After p_var'
+          call pmaxmn_g('PS ', Atm(n)%ps,   isc, iec, jsc, jec, 1, 0.01   , Atm(n)%gridstruct%area_64, Atm(n)%domain)
+
+          call pmaxmn_z(Atm(n)%delp, 'ts1mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts1mmr:ts1mmr), isc, iec, jsc, jec, npz, &
+                        rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+
+          call pmaxmn_z(Atm(n)%delp, 'ts3mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts3mmr:ts3mmr), isc, iec, jsc, jec, npz, &
+                        rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
 
 
 !---------------------------------------------------------------------------------------------
@@ -820,7 +894,11 @@ contains
              do k=1,npz
                 do j=jsc,jec
                    do i=isc,iec
-                      Atm(n)%delz(i,j,k) = (rdgas*rgrav)*Atm(n)%pt(i,j,k)*(1.+zvir*Atm(n)%q(i,j,k,sphum))*(Atm(n)%peln(i,k,j)-Atm(n)%peln(i,k+1,j))
+                      if (sphum > 0) then
+                         Atm(n)%delz(i,j,k) = (rdgas*rgrav)*Atm(n)%pt(i,j,k)*(1.+zvir*Atm(n)%q(i,j,k,sphum))*(Atm(n)%peln(i,k,j)-Atm(n)%peln(i,k+1,j))
+                      else
+                         Atm(n)%delz(i,j,k) = (rdgas*rgrav)*Atm(n)%pt(i,j,k)*(Atm(n)%peln(i,k,j)-Atm(n)%peln(i,k+1,j))
+                      endif
                    enddo
                 enddo
              enddo
@@ -849,6 +927,24 @@ contains
          enddo
          Atm(n)%flagstruct%srf_init = .true.
     endif
+
+    !JianHe: Update q to conserve mass
+    if (is_master()) write(*,*) 'Update q based on new met state, and done with fv_restart'
+    do j=jsc,jec
+       do i=isc,iec
+          Atm(n)%q(i,j,1:npz,ts1mmr:ts1mmr) = Atm(n)%q(i,j,1:npz,ts1mmr:ts1mmr)*Atm(n)%ps_rst(i,j)/Atm(n)%ps(i,j)
+          Atm(n)%q(i,j,1:npz,ts2mmr:ts2mmr) = Atm(n)%q(i,j,1:npz,ts2mmr:ts2mmr)*Atm(n)%ps_rst(i,j)/Atm(n)%ps(i,j)
+          Atm(n)%q(i,j,1:npz,ts3mmr:ts3mmr) = Atm(n)%q(i,j,1:npz,ts3mmr:ts3mmr)*Atm(n)%ps_rst(i,j)/Atm(n)%ps(i,j)
+          Atm(n)%q(i,j,1:npz,ts4mmr:ts4mmr) = Atm(n)%q(i,j,1:npz,ts4mmr:ts4mmr)*Atm(n)%ps_rst(i,j)/Atm(n)%ps(i,j)
+       enddo
+    enddo
+    call pmaxmn_z(Atm(n)%delp, 'ts1mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts1mmr:ts1mmr), isc, iec, jsc, jec, npz, &
+            rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+
+    call pmaxmn_z(Atm(n)%delp, 'ts3mmr', Atm(n)%q(isd:ied,jsd:jed,1:npz,ts3mmr:ts3mmr), isc, iec, jsc, jec, npz, &
+            rgrav, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+
+
 
     end do   ! n_tile
 
@@ -1124,7 +1220,11 @@ contains
 #ifdef MULTI_GASES
                    Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*virq(Atm(1)%q(i,j,k,:))
 #else
-                   Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*(1.+zvir*Atm(1)%q(i,j,k,sphum))
+                   if (sphum > 0) then
+                      Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*(1.+zvir*Atm(1)%q(i,j,k,sphum))
+                   else
+                      Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)
+                   endif
 #endif
                 end do
              end do
@@ -1149,7 +1249,11 @@ contains
 #ifdef MULTI_GASES
                    Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*virq(Atm(1)%q(i,j,k,:))
 #else
-                   Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*(1.+zvir*Atm(1)%q(i,j,k,sphum))
+                   if (sphum > 0) then
+                      Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*(1.+zvir*Atm(1)%q(i,j,k,sphum))
+                   else
+                      Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)
+                   endif
 #endif
                 end do
              end do
@@ -1163,7 +1267,11 @@ contains
 #ifdef MULTI_GASES
                    Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*virq(Atm(1)%q(i,j,k,:))
 #else
-                   Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*(1.+zvir*Atm(1)%q(i,j,k,sphum))
+                   if (sphum > 0) then
+                      Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*(1.+zvir*Atm(1)%q(i,j,k,sphum))
+                   else
+                      Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)
+                   endif
 #endif
                 end do
              end do
@@ -1188,7 +1296,11 @@ contains
 #ifdef MULTI_GASES
                    Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*virq(Atm(1)%q(i,j,k,:))
 #else
-                   Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*(1.+zvir*Atm(1)%q(i,j,k,sphum))
+                   if (sphum > 0) then
+                      Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)*(1.+zvir*Atm(1)%q(i,j,k,sphum))
+                   else
+                      Atm(1)%pt(i,j,k) = cp_air*Atm(1)%pt(i,j,k)/pt_coarse(i,j,k)
+                   endif
 #endif
                 end do
              end do
@@ -1562,4 +1674,36 @@ subroutine pmaxmn_g(qname, q, is, ie, js, je, km, fac, area, domain)
       if(is_master()) write(6,*) qname, qmax*fac, qmin*fac, gmean*fac
 
 end subroutine pmaxmn_g
+
+subroutine pmaxmn_z(delp, qname, q, is, ie, js, je, km, fac, area, domain)
+      real, intent(in):: delp(is-3:ie+3, js-3:je+3, km)
+      character(len=*), intent(in)::  qname
+      integer, intent(in):: is, ie, js, je
+      integer, intent(in):: km
+      real, intent(in)::    q(is-3:ie+3, js-3:je+3, km)
+      real, intent(in)::    fac
+      real(kind=R_GRID), intent(IN)::    area(is-3:ie+3, js-3:je+3)
+      type(domain2d), intent(INOUT) :: domain
+!
+      real sum2(is:ie, js:je)
+      integer i,j,k
+      real gtot
+
+      do j=js,je
+        do i=is,ie
+           sum2(i,j) = delp(i,j,1)*q(i,j,1)
+        enddo
+        do k=2,km
+          do i=is,ie
+            sum2(i,j) = sum2(i,j) + delp(i,j,k)*q(i,j,k)
+          enddo
+        enddo
+      enddo
+
+      gtot = g_sum(domain, sum2(is:ie,js:je), is, ie, js, je, 3, area, 0)
+
+      if(is_master()) write(6,*) qname, gtot*fac    
+
+end subroutine pmaxmn_z
+
 end module fv_restart_mod

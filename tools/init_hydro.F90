@@ -122,7 +122,7 @@ contains
    pek = ptop ** cappa
 
 !$OMP parallel do default(none) shared(ifirst,ilast,jfirst,jlast,km,ptop,pek,pe,pk, &
-!$OMP                                  ps,adjust_dry_mass,dpd,delp,peln,cappa,      &
+!$OMP                                  ps,adjust_dry_mass,dpd,delp,peln,cappa,q,    &
 !$OMP                                  ptop_min,hydrostatic,pkz )                   &
 !$OMP                          private(ratio, ak1, lnp)
    do j=jfirst,jlast
@@ -193,7 +193,11 @@ contains
              do k=1,km
                 do j=jfirst,jlast
                    do i=ifirst,ilast
-                      delz(i,j,k) = rdg*pt(i,j,k)*(1.+zvir*q(i,j,k,sphum))*(peln(i,k+1,j)-peln(i,k,j))
+                      if (sphum > 0) then
+                         delz(i,j,k) = rdg*pt(i,j,k)*(1.+zvir*q(i,j,k,sphum))*(peln(i,k+1,j)-peln(i,k,j))
+                      else
+                         delz(i,j,k) = rdg*pt(i,j,k)*(peln(i,k+1,j)-peln(i,k,j))
+                      endif
                    enddo
                 enddo
              enddo

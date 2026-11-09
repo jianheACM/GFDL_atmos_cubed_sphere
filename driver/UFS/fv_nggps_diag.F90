@@ -64,9 +64,9 @@ module fv_nggps_diags_mod
 
  use mpp_mod,            only: mpp_pe, mpp_root_pe,FATAL,mpp_error, input_nml_file, stdlog
 #ifdef OVERLOAD_R4
- use constantsR4_mod,    only: grav, rdgas
+ use constantsR4_mod,    only: grav, rdgas,  WTMAIR, WTMCO2, WTMCH4
 #else
- use constants_mod,      only: grav, rdgas
+ use constants_mod,      only: grav, rdgas,  WTMAIR, WTMCO2, WTMCH4
 #endif
  use time_manager_mod,   only: time_type, get_time
  use diag_manager_mod,   only: register_diag_field, send_data
@@ -112,8 +112,10 @@ module fv_nggps_diags_mod
  integer :: id_w, id_delz, id_diss, id_ps, id_hs, id_dbz, id_omga
  integer :: kstt_ua, kstt_va, kstt_pt, kstt_delp, kstt_pfhy
  integer :: kstt_pfnh, kstt_w, kstt_delz, kstt_diss, kstt_ps,kstt_hs
+ integer :: kstt_ts1v,kstt_ts2v,kstt_ts3v,kstt_ts4v
  integer :: kend_ua, kend_va, kend_pt, kend_delp, kend_pfhy
  integer :: kend_pfnh, kend_w, kend_delz, kend_diss, kend_ps,kend_hs
+ integer :: kend_ts1v,kend_ts2v,kend_ts3v,kend_ts4v
  integer :: kstt_dbz, kend_dbz, kstt_omga, kend_omga
  integer :: kstt_windvect, kend_windvect
  integer :: kstt_o3_ave, kend_o3_ave, kstt_pm25_ave, kend_pm25_ave
@@ -125,6 +127,7 @@ module fv_nggps_diags_mod
  integer :: id_uhmax03,id_uhmin03,id_uhmax25,id_uhmin25,id_maxvort01
  integer :: id_maxvorthy1,kstt_maxvorthy1,kstt_maxvort01,id_ustm
  integer :: id_o3_ave,id_pm25_ave,id_no_ave,id_no2_ave
+ integer :: id_ts1_dvmr,id_ts2_dvmr,id_ts3_dvmr,id_ts4_dvmr
  integer :: id_smoke_ave, id_dust_ave, id_coarsepm_ave
  integer :: kend_maxvorthy1,kend_maxvort01,id_vstm,id_srh01,id_srh03
  integer :: kstt_uhmax03,kstt_uhmin03,kend_uhmax03,kend_uhmin03
@@ -144,6 +147,7 @@ module fv_nggps_diags_mod
  logical :: module_is_initialized=.false.
  logical :: use_wrtgridcomp_output=.false.
  integer :: sphum, liq_wat, ice_wat       !< GFDL physics
+ integer :: ts1mmr,ts2mmr,ts3mmr,ts4mmr
  integer :: rainwat, snowwat, graupel
  real :: vrange(2), wrange(2), trange(2)
  real :: skrange(2) = (/ -10000000.0,  10000000.0 /)  !< dissipation estimate for SKEB
@@ -211,9 +215,27 @@ contains
     snowwat = get_tracer_index (MODEL_ATMOS, 'snowwat')
     graupel = get_tracer_index (MODEL_ATMOS, 'graupel')
 
+    ts1mmr = get_tracer_index (MODEL_ATMOS, 'ts1mmr')
+    ts2mmr = get_tracer_index (MODEL_ATMOS, 'ts2mmr')
+    ts3mmr = get_tracer_index (MODEL_ATMOS, 'ts3mmr')
+    ts4mmr = get_tracer_index (MODEL_ATMOS, 'ts4mmr')
+
 !--------------------------------------------------------------
 ! Register main prognostic fields: ps, (u,v), t, omega (dp/dt)
 !--------------------------------------------------------------
+    id_ts1_dvmr = 0
+    id_ts2_dvmr = 0
+    id_ts3_dvmr = 0
+    id_ts4_dvmr = 0
+    kstt_ts1v = 0
+    kend_ts1v = 0
+    kstt_ts2v = 0
+    kend_ts2v = 0
+    kstt_ts3v = 0
+    kend_ts3v = 0
+    kstt_ts4v = 0
+    kend_ts4v = 0
+
     allocate(id_tracer(ncnsto))
     allocate(kstt_tracer(ncnsto), kend_tracer(ncnsto))
     id_tracer(:) = 0
@@ -328,6 +350,35 @@ contains
              nlevs = nlevs + npzo
           endif
        enddo
+
+       id_ts1_dvmr = register_diag_field ( trim(file_name), 'ts1_dvmr', axes(1:3), Time,        &
+                'ts1 dry volume mixing ratio', 'ppm', missing_value=missing_value )
+       if (id_ts1_dvmr>0) then
+             kstt_ts1v = nlevs+1; kend_ts1v = nlevs+npzo
+             nlevs = nlevs + npzo
+       endif
+
+       id_ts2_dvmr = register_diag_field ( trim(file_name), 'ts2_dvmr', axes(1:3), Time,        &
+                'ts2 dry volume mixing ratio', 'ppm', missing_value=missing_value )
+       if (id_ts2_dvmr>0) then
+             kstt_ts2v = nlevs+1; kend_ts2v = nlevs+npzo
+             nlevs = nlevs + npzo
+       endif
+
+       id_ts3_dvmr = register_diag_field ( trim(file_name), 'ts3_dvmr', axes(1:3), Time,        &
+                'ts3 dry volume mixing ratio', 'ppm', missing_value=missing_value )
+       if (id_ts3_dvmr>0) then
+             kstt_ts3v = nlevs+1; kend_ts3v = nlevs+npzo
+             nlevs = nlevs + npzo
+       endif
+
+       id_ts4_dvmr = register_diag_field ( trim(file_name), 'ts4_dvmr', axes(1:3), Time,        &
+                'ts4 dry volume mixing ratio', 'ppm', missing_value=missing_value )
+       if (id_ts4_dvmr>0) then
+             kstt_ts4v = nlevs+1; kend_ts4v = nlevs+npzo
+             nlevs = nlevs + npzo
+       endif
+
 !
        id_ps = register_diag_field ( trim(file_name), 'ps', axes(1:2), Time,    &
            'surface pressure', 'Pa',  missing_value=missing_value )
@@ -614,6 +665,50 @@ contains
                          kstt_tracer(itrac),kend_tracer(itrac) )
       endif
     enddo
+
+    if (ts1mmr > 0 .and. id_ts1_dvmr > 0) then
+       do k=1,npzo
+         do j=jsco,jeco
+           do i=isco,ieco
+             wk(i,j,k) = Atm(n)%q(i,j,k,ts1mmr)
+           enddo
+         enddo
+       enddo
+       call store_data (id_ts1_dvmr, wk*WTMAIR/WTMCO2*1.e6 , Time, kstt_ts1v, kend_ts1v)  ! ppm
+    endif    
+
+    if (ts2mmr > 0 .and. id_ts2_dvmr > 0) then
+       do k=1,npzo
+         do j=jsco,jeco
+           do i=isco,ieco
+             wk(i,j,k) = Atm(n)%q(i,j,k,ts2mmr)
+           enddo
+         enddo
+       enddo
+       call store_data (id_ts2_dvmr, wk*WTMAIR/WTMCO2*1.e6 , Time, kstt_ts2v, kend_ts2v)  ! ppm
+    endif
+
+    if (ts3mmr > 0 .and. id_ts3_dvmr > 0) then
+       do k=1,npzo
+         do j=jsco,jeco
+           do i=isco,ieco
+             wk(i,j,k) = Atm(n)%q(i,j,k,ts3mmr)/(1.0-sum(Atm(n)%q(i,j,k,1:Atm(n)%flagstruct%nwat)))
+           enddo
+         enddo
+       enddo
+       call store_data (id_ts3_dvmr, wk*WTMAIR/WTMCO2*1.e6 , Time, kstt_ts3v, kend_ts3v)  ! ppm
+    endif
+
+    if (ts4mmr > 0 .and. id_ts4_dvmr > 0) then
+       do k=1,npzo
+         do j=jsco,jeco
+           do i=isco,ieco
+             wk(i,j,k) = Atm(n)%q(i,j,k,ts4mmr)/(1.0-sum(Atm(n)%q(i,j,k,1:Atm(n)%flagstruct%nwat)))
+           enddo
+         enddo
+       enddo
+       call store_data (id_ts4_dvmr, wk*WTMAIR/WTMCO2*1.e6 , Time, kstt_ts4v, kend_ts4v)  ! ppm
+    endif
 
     !--- DELZ (non-hydrostatic)
     if((.not. Atm(n)%flagstruct%hydrostatic) .and. id_delz > 0) then
@@ -1518,7 +1613,35 @@ contains
      endif
 !     if(mpp_pe()==mpp_root_pe())print *,'in fv_dyn bundle,add trac,i=',i,'output_name=',trim(output_name),' rc=',rc
    enddo
-!
+! co2
+   if (id_ts1_dvmr>0) then
+     call find_outputname(trim(file_name),'ts1_dvmr',output_name)
+     call add_field_to_bundle(trim(output_name),'ts1 dry volume mixing ratio', 'ppm', "time: point",   &
+            axes(1:3), fcst_grid, kstt_ts1v, kend_ts1v, dyn_bundle, output_file, rcd=rc)
+     if(rc==0)  num_field_dyn=num_field_dyn+1
+   endif
+
+   if (id_ts2_dvmr>0) then
+     call find_outputname(trim(file_name),'ts2_dvmr',output_name)
+     call add_field_to_bundle(trim(output_name),'ts2 dry volume mixing ratio', 'ppm', "time: point",   &
+            axes(1:3), fcst_grid, kstt_ts2v, kend_ts2v, dyn_bundle, output_file, rcd=rc)
+     if(rc==0)  num_field_dyn=num_field_dyn+1
+   endif
+
+   if (id_ts3_dvmr>0) then
+     call find_outputname(trim(file_name),'ts3_dvmr',output_name)
+     call add_field_to_bundle(trim(output_name),'ts3 dry volume mixing ratio', 'ppm', "time: point",   &
+            axes(1:3), fcst_grid, kstt_ts3v, kend_ts3v, dyn_bundle, output_file, rcd=rc)
+     if(rc==0)  num_field_dyn=num_field_dyn+1
+   endif
+
+   if (id_ts4_dvmr>0) then
+     call find_outputname(trim(file_name),'ts4_dvmr',output_name)
+     call add_field_to_bundle(trim(output_name),'ts4 dry volume mixing ratio', 'ppm', "time: point",   &
+            axes(1:3), fcst_grid, kstt_ts4v, kend_ts4v, dyn_bundle, output_file, rcd=rc)
+     if(rc==0)  num_field_dyn=num_field_dyn+1
+   endif
+
 !
    if ( id_o3_ave > 0 ) then
      call find_outputname(trim(file_name),'o3_ave',output_name)

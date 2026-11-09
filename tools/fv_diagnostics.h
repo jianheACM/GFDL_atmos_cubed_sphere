@@ -65,6 +65,8 @@
  integer :: id_hght3d, id_any_hght
  integer :: id_u100m, id_v100m, id_w100m
 
+ integer :: id_ts1_dvmr, id_ts2_dvmr, id_ts3_dvmr, id_ts4_dvmr
+
      ! For initial conditions:
      integer ic_ps, ic_ua, ic_va, ic_ppt
      integer ic_sphum

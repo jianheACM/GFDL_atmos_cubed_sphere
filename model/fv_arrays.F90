@@ -732,7 +732,7 @@ module fv_arrays_mod
    logical :: fill_gfs = .true. ! default behavior
    logical :: check_negative = .false.   !< Whether to print the most negativ global value of microphysical tracers.
    logical :: non_ortho = .true.
-   logical :: moist_phys = .true.     !< Run with moist physics
+   logical :: moist_phys = .true.        !< Run with moist physics
    logical :: do_Held_Suarez = .false.   !< Whether to use Held-Suarez forcing. Requires adiabatic
                                          !< to be false. The default is .false.; this option has no
                                          !< effect if not running solo_core.
@@ -1277,6 +1277,7 @@ module fv_arrays_mod
 !-----------------------------------------------------------------------
 ! dyn_aux:
     real, _ALLOCATABLE :: ps (:,:)      _NULL  !< Surface pressure (pascal)
+    real, _ALLOCATABLE :: ps_rst(:,:)   _NULL  !< Surface pressure (pascal)
     real, _ALLOCATABLE :: pe (:,:,: )   _NULL  !< edge pressure (pascal)
     real, _ALLOCATABLE :: pk  (:,:,:)   _NULL  !< pe**cappa
     real, _ALLOCATABLE :: peln(:,:,:)   _NULL  !< ln(pe)
@@ -1510,6 +1511,7 @@ contains
 
     ! Allocate Auxilliary pressure arrays
     allocate (   Atm%ps(isd:ied  ,jsd:jed) )
+    allocate (   Atm%ps_rst(isd:ied  ,jsd:jed) )
     allocate (   Atm%pe(is-1:ie+1, npz+1,js-1:je+1) )
     allocate (   Atm%pk(is:ie    ,js:je  , npz+1) )
     allocate ( Atm%peln(is:ie,npz+1,js:je) )
@@ -1911,6 +1913,7 @@ contains
     deallocate (    Atm%q )
     deallocate (    Atm%qdiag )
     deallocate (   Atm%ps )
+    deallocate (   Atm%ps_rst )
     deallocate (   Atm%pe )
     deallocate (   Atm%pk )
     deallocate ( Atm%peln )

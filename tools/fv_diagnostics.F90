@@ -113,10 +113,10 @@ module fv_diagnostics_mod
 ! </table>
 
 #ifdef OVERLOAD_R4
- use constantsR4_mod,    only: grav, rdgas, rvgas, pi=>pi_8, radius, kappa, WTMAIR, WTMCO2, &
+ use constantsR4_mod,    only: grav, rdgas, rvgas, pi=>pi_8, radius, kappa, WTMAIR, WTMCO2, WTMCH4, &
                                omega, hlv, cp_air, cp_vapor, TFREEZE
 #else
- use constants_mod,      only: grav, rdgas, rvgas, pi=>pi_8, radius, kappa, WTMAIR, WTMCO2, &
+ use constants_mod,      only: grav, rdgas, rvgas, pi=>pi_8, radius, kappa, WTMAIR, WTMCO2, WTMCH4, &
                                omega, hlv, cp_air, cp_vapor, TFREEZE
 #endif
  use fms_mod,            only: write_version_number
@@ -183,6 +183,7 @@ module fv_diagnostics_mod
 #else
  integer  o3mr
 #endif
+ integer :: ts1mmr,ts2mmr,ts3mmr,ts4mmr
  integer :: istep, mp_top
  real    :: ptop
  real, parameter    ::     rad2deg = 180./pi
@@ -287,6 +288,7 @@ contains
     integer :: id_bk, id_pk, id_area, id_lon, id_lat, id_lont, id_latt, id_phalf, id_pfull
     integer :: id_hyam, id_hybm
     integer :: id_plev, id_plev_ave_edges, id_plev_ave
+    integer :: id_ts1_dvmr, id_ts2_dvmr, id_ts3_dvmr, id_ts4_dvmr
     integer :: i, j, k, m, n, ntileMe, id_xt, id_yt, id_x, id_y, id_xe, id_ye, id_xn, id_yn
     integer :: isc, iec, jsc, jec
 
@@ -335,6 +337,11 @@ contains
     o3mr    = get_tracer_index (MODEL_ATMOS, 'o3mr')
 #endif
     cld_amt = get_tracer_index (MODEL_ATMOS, 'cld_amt')
+    
+    ts1mmr = get_tracer_index (MODEL_ATMOS, 'ts1mmr')
+    ts2mmr = get_tracer_index (MODEL_ATMOS, 'ts2mmr')
+    ts3mmr = get_tracer_index (MODEL_ATMOS, 'ts3mmr')
+    ts4mmr = get_tracer_index (MODEL_ATMOS, 'ts4mmr')
 
 ! valid range for some fields
 
@@ -698,6 +705,10 @@ contains
 ! Register main prognostic fields: ps, (u,v), t, omega (dp/dt)
 !--------------------------------------------------------------
 
+    id_ts1_dvmr = 0
+    id_ts2_dvmr = 0
+    id_ts3_dvmr = 0
+    id_ts4_dvmr = 0
     allocate(id_tracer(ncnst))
     allocate(id_tracer_dmmr(ncnst))
     allocate(id_tracer_dvmr(ncnst))
@@ -1105,6 +1116,19 @@ contains
                 '350-K potential vorticity; needs x350 scaling', '(K m**2) / (kg s)', missing_value=missing_value)
           id_pv550K = register_diag_field ( trim(field), 'pv550K', axes(1:2), Time,       &
                 '550-K potential vorticity; needs x550 scaling', '(K m**2) / (kg s)', missing_value=missing_value)
+
+        !--------------------
+        ! CO2
+        !--------------------
+        id_ts1_dvmr = register_diag_field ( trim(field), 'ts1_dvmr', axes(1:3), Time,        &
+                'ts1 dry volume mixing ratio', 'ppm', missing_value=missing_value )
+        id_ts2_dvmr = register_diag_field ( trim(field), 'ts2_dvmr', axes(1:3), Time,        &
+                'ts2 dry volume mixing ratio', 'ppm', missing_value=missing_value )
+        id_ts3_dvmr = register_diag_field ( trim(field), 'ts3_dvmr', axes(1:3), Time,        &
+                'ts3 dry volume mixing ratio', 'ppm', missing_value=missing_value )
+        id_ts4_dvmr = register_diag_field ( trim(field), 'ts4_dvmr', axes(1:3), Time,        &
+                'ts4 dry volume mixing ratio', 'ppm', missing_value=missing_value )
+
 
 !--------------------
 ! 3D flux terms
@@ -1604,6 +1628,7 @@ contains
     real, allocatable :: slp(:,:), depress(:,:), ws_max(:,:), tc_count(:,:)
     real, allocatable :: u2(:,:), v2(:,:), x850(:,:), var1(:,:), var2(:,:), var3(:,:)
     real, allocatable :: dmmr(:,:,:), dvmr(:,:,:)
+    real, allocatable :: ts1_dvmr(:,:,:),ts2_dvmr(:,:,:),ts3_dvmr(:,:,:),ts4_dvmr(:,:,:)
     real height(2)
     real:: plevs(nplev), pout(nplev)
     integer:: idg(nplev), id1(nplev)
@@ -1810,8 +1835,10 @@ contains
 #endif
 #endif	! SW_DYNAMICS
 
-         call range_check('Qv', Atm(n)%q(:,:,:,sphum), isc, iec, jsc, jec, ngc, npz, Atm(n)%gridstruct%agrid,   &
+         if (sphum > 0) then
+            call range_check('Qv', Atm(n)%q(:,:,:,sphum), isc, iec, jsc, jec, ngc, npz, Atm(n)%gridstruct%agrid,   &
                           -1.e-8, 1.e20, bad_range, Time)
+         endif
 
       endif
 
@@ -1822,6 +1849,7 @@ contains
         allocate ( dmmr(isc:iec,jsc:jec,1:npz) )
         allocate ( dvmr(isc:iec,jsc:jec,1:npz) )
     endif
+
 
 !    do n = 1, ntileMe
     n = 1
@@ -3253,7 +3281,12 @@ contains
           do k=1,npz
             do j=jsc,jec
             do i=isc,iec
-              wk(i,j,k) = Atm(n)%delp(i,j,k)*(1.-sum(Atm(n)%q(i,j,k,2:Atm(n)%flagstruct%nwat)))
+               if (Atm(n)%flagstruct%nwat > 0) then
+                  wk(i,j,k) = Atm(n)%delp(i,j,k)*(1.-sum(Atm(n)%q(i,j,k,2:Atm(n)%flagstruct%nwat)))
+               else
+                  !JianHe: test nwat=0
+                  wk(i,j,k) = Atm(n)%delp(i,j,k)
+               endif
             enddo
             enddo
           enddo
@@ -3902,6 +3935,54 @@ contains
             endif
           endif
         enddo
+
+        if (ts1mmr > 0 .or. ts3mmr > 0) then
+           allocate ( ts1_dvmr(isc:iec,jsc:jec,1:npz) )
+           allocate ( ts2_dvmr(isc:iec,jsc:jec,1:npz) )
+           allocate ( ts3_dvmr(isc:iec,jsc:jec,1:npz) )
+           allocate ( ts4_dvmr(isc:iec,jsc:jec,1:npz) )
+
+           if (Atm(n)%flagstruct%nwat > 0) then
+              !assume tracer transport in dry air
+              ts1_dvmr(:,:,:) = Atm(n)%q(isc:iec,jsc:jec,1:npz,ts1mmr)  &
+                              * WTMAIR/WTMCO2*1.e6 ! ppm
+              ts2_dvmr(:,:,:) = Atm(n)%q(isc:iec,jsc:jec,1:npz,ts2mmr)  &
+                              * WTMAIR/WTMCO2*1.e6 ! ppm
+              ts3_dvmr(:,:,:) = Atm(n)%q(isc:iec,jsc:jec,1:npz,ts3mmr)  &
+                              /(1.0-sum(Atm(n)%q(isc:iec,jsc:jec,1:npz,1:Atm(n)%flagstruct%nwat),4)) &
+                              * WTMAIR/WTMCO2*1.e6 ! ppm
+              ts4_dvmr(:,:,:) = Atm(n)%q(isc:iec,jsc:jec,1:npz,ts4mmr)  &
+                              /(1.0-sum(Atm(n)%q(isc:iec,jsc:jec,1:npz,1:Atm(n)%flagstruct%nwat),4)) &
+                              * WTMAIR/WTMCO2*1.e6 ! ppm
+           else
+              ts1_dvmr(:,:,:) = Atm(n)%q(isc:iec,jsc:jec,1:npz,ts1mmr)  &
+                              * WTMAIR/WTMCO2*1.e6 ! ppm
+              ts2_dvmr(:,:,:) = Atm(n)%q(isc:iec,jsc:jec,1:npz,ts2mmr)  &
+                              * WTMAIR/WTMCO2*1.e6 ! ppm
+              ts3_dvmr(:,:,:) = Atm(n)%q(isc:iec,jsc:jec,1:npz,ts3mmr)  &
+                              * WTMAIR/WTMCO2*1.e6 ! ppm
+              ts4_dvmr(:,:,:) = Atm(n)%q(isc:iec,jsc:jec,1:npz,ts4mmr)  &
+                              * WTMAIR/WTMCO2*1.e6 ! ppm
+           endif
+
+           used = send_data (id_ts1_dvmr, ts1_dvmr, Time )
+           used = send_data (id_ts2_dvmr, ts2_dvmr, Time )
+           used = send_data (id_ts3_dvmr, ts3_dvmr, Time )
+           used = send_data (id_ts4_dvmr, ts4_dvmr, Time )
+
+           if( prt_minmax ) then
+              call prt_maxmin('ts1_dvmr', ts1_dvmr, &
+                    isc, iec, jsc, jec, 0, npz, 1.)
+              call prt_maxmin('ts2_dvmr', ts2_dvmr, &
+                    isc, iec, jsc, jec, 0, npz, 1.)
+              call prt_maxmin('ts3_dvmr', ts3_dvmr, &
+                    isc, iec, jsc, jec, 0, npz, 1.)
+              call prt_maxmin('ts4_dvmr', ts4_dvmr, &
+                    isc, iec, jsc, jec, 0, npz, 1.)
+           endif
+        endif
+
+
 !----------------------------------
 ! compute 3D flux terms
 !----------------------------------
@@ -4454,9 +4535,11 @@ contains
  real(kind=R_GRID), intent(IN):: area(is-n_g:ie+n_g,js-n_g:je+n_g)
  type(domain2d), intent(INOUT) :: domain
 ! Local:
- real psq(is:ie,js:je,nwat), psqv(is:ie,js:je)
+ integer, parameter :: chmn=4
+ real psq(is:ie,js:je,nwat), psqv(is:ie,js:je),pschem(is:ie,js:je,chmn)
  real q_strat(is:ie,js:je)
- real qtot(nwat), qwat
+ real qtot(nwat), qwat(nwat)
+ real chemtot(chmn), airmass(2)
  real psmo, totw, psdry
  integer k, n, kstrat
 
@@ -4470,6 +4553,7 @@ contains
     graupel = get_tracer_index (MODEL_ATMOS, 'graupel')
     hailwat = get_tracer_index (MODEL_ATMOS, 'hailwat')
 
+ !JianHe: test nwat=0
  if ( nwat==0 ) then
       psmo = g_sum(domain, ps(is:ie,js:je), is, ie, js, je, n_g, area, 1)
       if( master ) write(*,*) 'Total surface pressure (mb)', trim(gn), ' = ',  0.01*psmo
@@ -4478,6 +4562,7 @@ contains
  endif
 
  psq(:,:,:) = 0.
+
  call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,sphum  ), psq(is,js,sphum  ))
 
  if (liq_wat > 0)  &
@@ -4496,7 +4581,6 @@ contains
       call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,graupel), psq(is,js,graupel))
  if (hailwat > 0) &
       call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,hailwat), psq(is,js,hailwat))
-
 
 ! Mean water vapor in the "stratosphere" (75 mb and above):
  if ( phalf(2)< 75. ) then
@@ -4519,6 +4603,7 @@ contains
 
  do n=1,nwat
     qtot(n) = g_sum(domain, psq(is,js,n), is, ie, js, je, n_g, area, 1)
+    qwat(n) = g_sum(domain, psq(is,js,n), is, ie, js, je, n_g, area, 0)
  enddo
 
  totw  = sum(qtot(1:nwat))
@@ -4548,6 +4633,44 @@ contains
      endif
   endif
 
+
+  ts1mmr  = get_tracer_index (MODEL_ATMOS, 'ts1mmr')
+  ts2mmr  = get_tracer_index (MODEL_ATMOS, 'ts2mmr')
+  ts3mmr  = get_tracer_index (MODEL_ATMOS, 'ts3mmr')
+  ts4mmr  = get_tracer_index (MODEL_ATMOS, 'ts4mmr')
+
+  pschem(:,:,:) = 0.
+  if (ts1mmr > 0) &
+      call z_sum2(is, ie, js, je, km, n_g, nwat, delp, q(is-n_g,js-n_g,1,ts1mmr), q(is-n_g,js-n_g,1,1), pschem(is,js,1))
+  if (ts2mmr > 0) &
+      call z_sum2(is, ie, js, je, km, n_g, nwat, delp, q(is-n_g,js-n_g,1,ts2mmr), q(is-n_g,js-n_g,1,1), pschem(is,js,2))
+  if (ts3mmr > 0) &
+      call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,ts3mmr), pschem(is,js,3))
+  if (ts4mmr > 0) &
+      call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,ts4mmr), pschem(is,js,4))
+
+  airmass(1) = m_sum(is, ie, js, je, km, n_g, delp, area, domain)  ! total air mass 
+  airmass(2) = airmass(1) - sum(qwat(1:nwat))
+
+!!-------------------
+!! Check global totals
+!!-------------------
+
+ do n=1,chmn
+    chemtot(n) = g_sum(domain, pschem(is,js,n), is, ie, js, je, n_g, area, 0) ! global total
+ enddo
+
+ if( master ) then
+    write(*,*) '--- Chem_trac total (kg) ---'
+    write(*,*) 'Total ts1mmr', trim(gn), '=', chemtot(1)*ginv
+    write(*,*) 'Total ts2mmr', trim(gn), '=', chemtot(2)*ginv
+    write(*,*) 'Total ts3mmr', trim(gn), '=', chemtot(3)*ginv
+    write(*,*) 'Total ts4mmr', trim(gn), '=', chemtot(4)*ginv
+    write(*,*) 'Total airmass', trim(gn), '=', airmass(1)*ginv
+    write(*,*) 'Total dry airmass', trim(gn), '=', airmass(2)*ginv
+    write(*,*) '---------------------------------------------'
+ endif
+
  end subroutine prt_mass
 
 
@@ -4571,6 +4694,28 @@ contains
  enddo
 
  end subroutine z_sum
+
+ subroutine z_sum2(is, ie, js, je, km, n_g, nwat, delp, q, qwat,sum2)
+ integer, intent(in):: is, ie, js, je, n_g, nwat, km
+ real, intent(in):: delp(is-n_g:ie+n_g, js-n_g:je+n_g, km)
+ real, intent(in)::    q(is-n_g:ie+n_g, js-n_g:je+n_g, km)
+ real, intent(in)::    qwat(is-n_g:ie+n_g, js-n_g:je+n_g, km, nwat)
+ real, intent(out):: sum2(is:ie,js:je)
+
+ integer i,j,k
+
+ do j=js,je
+    do i=is,ie
+       sum2(i,j) = delp(i,j,1)*(1-sum(qwat(i,j,1,1:nwat)))*q(i,j,1)
+    enddo
+    do k=2,km
+       do i=is,ie
+          sum2(i,j) = sum2(i,j) + delp(i,j,k)*(1-sum(qwat(i,j,k,1:nwat)))*q(i,j,k)
+       enddo
+    enddo
+ enddo
+
+ end subroutine z_sum2
 
 
  real function p_sum(is, ie, js, je, km, n_g, delp, area, domain)
@@ -4596,6 +4741,50 @@ contains
 
  end function p_sum
 
+ real function m_sum(is, ie, js, je, km, n_g, delp, area, domain)
+ integer, intent(in):: is, ie, js, je,  n_g, km
+ real, intent(in):: delp(is-n_g:ie+n_g, js-n_g:je+n_g, km)
+ real(kind=R_GRID), intent(IN) :: area(is-n_g:ie+n_g, js-n_g:je+n_g)
+ real :: sum2(is:ie,js:je)
+ integer i,j,k
+ type(domain2d), intent(INOUT) :: domain
+
+ do j=js,je
+    do i=is,ie
+       sum2(i,j) = delp(i,j,1)
+    enddo
+    do k=2,km
+       do i=is,ie
+          sum2(i,j) = sum2(i,j) + delp(i,j,k)
+       enddo
+    enddo
+ enddo
+ m_sum = g_sum(domain, sum2, is, ie, js, je, n_g, area, 0)
+
+ end function m_sum
+
+ real function m_sum2(is, ie, js, je, km, n_g, delp, qwat, nwat, area, domain)
+ integer, intent(in):: is, ie, js, je,  n_g, km, nwat
+ real, intent(in):: delp(is-n_g:ie+n_g, js-n_g:je+n_g, km)
+ real, intent(in):: qwat(is-n_g:ie+n_g, js-n_g:je+n_g, km,1:nwat)
+ real(kind=R_GRID), intent(IN) :: area(is-n_g:ie+n_g, js-n_g:je+n_g)
+ real :: sum2(is:ie,js:je)
+ integer i,j,k
+ type(domain2d), intent(INOUT) :: domain
+
+ do j=js,je
+    do i=is,ie
+       sum2(i,j) = delp(i,j,1)*(1.-sum(qwat(i,j,1,:)))
+    enddo
+    do k=2,km
+       do i=is,ie
+          sum2(i,j) = sum2(i,j) + delp(i,j,k)*(1.-sum(qwat(i,j,k,:)))  ! dry mass
+       enddo
+    enddo
+ enddo
+ m_sum2 = g_sum(domain, sum2, is, ie, js, je, n_g, area, 0)
+
+ end function m_sum2
 
 
  subroutine get_pressure_given_height(is, ie, js, je, ng, km, wz, kd, height,   &

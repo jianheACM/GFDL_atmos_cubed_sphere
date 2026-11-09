@@ -1524,7 +1524,8 @@ contains
    type(time_type) :: Time_prev, Time_next
    integer :: i, j, ix, im, k, k1, n, w_diff, nt_dyn, iq
    integer :: nb, blen, nwat, dnats, nq_adv
-   real(kind=kind_phys):: rcp, q0, qwat(nq), qt, rdt
+   integer :: ts1mmr,ts2mmr
+   real(kind=kind_phys):: rcp, q0, qwat(nq), qt, rdt, qts1, qts2
    real psum, qsum, psumb, qsumb, betad
    character(len=32) :: tracer_name
    Time_prev = Time
@@ -1535,6 +1536,12 @@ contains
    nwat = Atm(n)%flagstruct%nwat
    dnats = Atm(mygrid)%flagstruct%dnats
    nq_adv = nq - dnats
+   ts1mmr = get_tracer_index (MODEL_ATMOS, 'ts1mmr' )
+   ts2mmr = get_tracer_index (MODEL_ATMOS, 'ts2mmr' )
+
+   if (is_master()) then
+      print *,'nq,dnats,nq_adv', nq, dnats, nq_adv
+   endif
 
    if( nq<3 ) call mpp_error(FATAL, 'GFS phys must have 3 interactive tracers')
 
@@ -1599,12 +1606,12 @@ contains
 !--- put u/v tendencies into haloed arrays u_dt and v_dt
 !$OMP parallel do default (none) &
 !$OMP              shared (rdt, n, nq, dnats, npz, ncnst, nwat, mygrid, u_dt, v_dt, t_dt,&
-!$OMP                      Atm, IPD_Control, IPD_Statein, IPD_Stateout, Atm_block, sphum, liq_wat, rainwat, ice_wat, &
+!$OMP                      Atm, IPD_Control, IPD_Statein, IPD_Stateout, Atm_block, sphum, liq_wat, rainwat, ice_wat, ts1mmr, ts2mmr, &
 #ifdef MULTI_GASES
 !$OMP                      num_gas,                                                      &
 #endif
 !$OMP                      snowwat, graupel, nq_adv, flip_vc)   &
-!$OMP             private (nb, blen, i, j, k, k1, ix, im, q0, qwat, qt, tracer_name)
+!$OMP             private (nb, blen, i, j, k, k1, ix, im, q0, qwat, qt, qts1, qts2, tracer_name)
    do nb = 1,Atm_block%nblks
 
 !SJL: perform vertical filling to fix the negative humidity if the SAS convection scheme is used
@@ -1652,6 +1659,8 @@ contains
            q0 = IPD_Statein%prsi(im,k+1) - IPD_Statein%prsi(im,k)
          endif
          qwat(1:nq_adv) = q0*IPD_Stateout%gq0(im,k,1:nq_adv)
+         qts1 = IPD_Stateout%gq0(im,k,ts1mmr)
+         qts2 = IPD_Stateout%gq0(im,k,ts2mmr)
 ! **********************************************************************************************************
 ! Dry mass: the following way of updating delp is key to mass conservation with hybrid 32-64 bit computation
 ! **********************************************************************************************************
@@ -1665,6 +1674,8 @@ contains
 #endif
          Atm(n)%delp(i,j,k1) = q0
          Atm(n)%q(i,j,k1,1:nq_adv) = qwat(1:nq_adv) / q0
+         Atm(n)%q(i,j,k1,ts1mmr) = qts1
+         Atm(n)%q(i,j,k1,ts2mmr) = qts2
 !        if (dnats .gt. 0) Atm(n)%q(i,j,k1,nq_adv+1:nq) = IPD_Stateout%gq0(im,k,nq_adv+1:nq)
        enddo
      enddo
@@ -2102,10 +2113,14 @@ contains
    real(kind=kind_phys) :: pk0inv, ptop, pktop
    real(kind=kind_phys) :: rTv, dm, qgrs_rad
    integer :: nb, blen, npz, i, j, k, ix, im, k1, kz, dnats, nq_adv
+   integer :: ts1mmr, ts2mmr, n
 
 #ifdef MULTI_GASES
    real :: q_grs(nq), q_min
 #endif
+
+   ts1mmr = get_tracer_index (MODEL_ATMOS, 'ts1mmr' )
+   ts2mmr = get_tracer_index (MODEL_ATMOS, 'ts2mmr' )
 
 
 !!! NOTES: lmh 6nov15
@@ -2136,7 +2151,7 @@ contains
 !$OMP             shared  (Atm_block, Atm, IPD_Control, IPD_Statein, npz, nq, ncnst, sphum, liq_wat, &
 !$OMP                      IPD_Tbd, &
 !$OMP                      ice_wat, rainwat, snowwat, graupel, pk0inv, ptop,   &
-!$OMP                      pktop, zvir, mygrid, dnats, nq_adv, flip_vc) &
+!$OMP                      pktop, zvir, mygrid, dnats, nq_adv, flip_vc, n, ts1mmr, ts2mmr) &
 #ifdef MULTI_GASES
 
 !$OMP             private (dm, nb, blen, i, j, ix, im, k1, kz, rTv, qgrs_rad, q_min, q_grs)
@@ -2213,8 +2228,18 @@ contains
          endif
 
 ! Convert to tracer mass:
-         IPD_Statein%qgrs(im,k,1:nq_adv) =  _DBL_(_RL_(Atm(mygrid)%q(i,j,k1,1:nq_adv))) &
-                                                          * IPD_Statein%prsl(im,k)
+         !JianHe: 
+         do n=1,nq_adv
+            if (n==ts1mmr .or. n==ts2mmr) then
+               IPD_Statein%qgrs(im,k,n) = _DBL_(_RL_(Atm(mygrid)%q(i,j,k1,n)))
+            else
+               IPD_Statein%qgrs(im,k,n) = _DBL_(_RL_(Atm(mygrid)%q(i,j,k1,n))) &
+                                             * IPD_Statein%prsl(im,k)
+            endif
+         enddo
+
+         !IPD_Statein%qgrs(im,k,1:nq_adv) =  _DBL_(_RL_(Atm(mygrid)%q(i,j,k1,1:nq_adv))) &
+         !                                                 * IPD_Statein%prsl(im,k)
          if (dnats > 0) &
              IPD_Statein%qgrs(im,k,nq_adv+1:nq) =  _DBL_(_RL_(Atm(mygrid)%q(i,j,k1,nq_adv+1:nq)))
          !--- SHOULD THESE BE CONVERTED TO MASS SINCE THE DYCORE DOES NOT TOUCH THEM IN ANY WAY???
@@ -2248,8 +2273,15 @@ contains
            IPD_Statein%prsi(im,k)  = IPD_Statein%prsi(im,k+1) + IPD_Statein%prsl(im,k)
            IPD_Statein%prsik(im,k) = log( IPD_Statein%prsi(im,k) )
 ! Redefine mixing ratios for GFS == tracer_mass / (dry_air_mass + water_vapor_mass)
-           IPD_Statein%qgrs(im,k,1:nq_adv) = IPD_Statein%qgrs(im,k,1:nq_adv) &
-                                                   / IPD_Statein%prsl(im,k)
+           !JianHe: bypass co2mmr
+           do n=1,nq_adv
+              if (n.ne.ts1mmr .and. n.ne.ts2mmr)  then
+                IPD_Statein%qgrs(im,k,n) = IPD_Statein%qgrs(im,k,n)  / IPD_Statein%prsl(im,k)
+              endif
+           enddo
+
+           !IPD_Statein%qgrs(im,k,1:nq_adv) = IPD_Statein%qgrs(im,k,1:nq_adv) &
+           !                                        / IPD_Statein%prsl(im,k)
          enddo
        enddo
      else
@@ -2263,8 +2295,15 @@ contains
            IPD_Statein%prsi(im,k+1)  = IPD_Statein%prsi(im,k) + IPD_Statein%prsl(im,k)
            IPD_Statein%prsik(im,k) = log( IPD_Statein%prsi(im,k) )
 ! Redefine mixing ratios for GFS == tracer_mass / (dry_air_mass + water_vapor_mass)
-           IPD_Statein%qgrs(im,k,1:nq_adv) = IPD_Statein%qgrs(im,k,1:nq_adv) &
-                                           / IPD_Statein%prsl(im,k)
+           !IPD_Statein%qgrs(im,k,1:nq_adv) = IPD_Statein%qgrs(im,k,1:nq_adv) &
+           !                                / IPD_Statein%prsl(im,k)
+           !JianHe: bypass co2mmr
+           do n=1,nq_adv
+              if (n.ne.ts1mmr .and. n.ne.ts2mmr)  then
+                IPD_Statein%qgrs(im,k,n) = IPD_Statein%qgrs(im,k,n)  / IPD_Statein%prsl(im,k)
+              endif
+           enddo
+
          enddo
        enddo
      endif

@@ -170,9 +170,9 @@ module external_ic_mod
    use field_manager_mod,  only: MODEL_ATMOS
    use platform_mod,       only: r4_kind, r8_kind
 #ifdef OVERLOAD_R4
-   use constantsR4_mod,     only: pi=>pi_8, omega, grav, kappa, rdgas, rvgas, cp_air
+   use constantsR4_mod,     only: pi=>pi_8, omega, grav, kappa, rdgas, rvgas, cp_air,WTMAIR, WTMCO2, WTMCH4
 #else
-   use constants_mod,     only: pi=>pi_8, omega, grav, kappa, rdgas, rvgas, cp_air
+   use constants_mod,     only: pi=>pi_8, omega, grav, kappa, rdgas, rvgas, cp_air,WTMAIR, WTMCO2, WTMCH4
 #endif
    use fv_arrays_mod,     only: fv_atmos_type, fv_grid_type, fv_grid_bounds_type, R_GRID
    use fv_diagnostics_mod,only: prt_maxmin, prt_gb_nh_sh, prt_height
@@ -235,6 +235,7 @@ contains
       integer :: isd, ied, jsd, jed, ng
       integer :: sphum, liq_wat, ice_wat, rainwat, snowwat, graupel, hailwat, sgs_tke, cld_amt
       integer :: liq_aero, ice_aero
+      integer :: ts1mmr,ts2mmr,ts3mmr,ts4mmr
 #ifdef MULTI_GASES
       integer :: spo, spo2, spo3
 #else
@@ -320,10 +321,14 @@ contains
       call prt_maxmin('PS', Atm%ps, is, ie, js, je, ng, 1, 0.01)
       call prt_maxmin('T', Atm%pt, is, ie, js, je, ng, Atm%npz, 1.)
       if (.not.Atm%flagstruct%hydrostatic) call prt_maxmin('W', Atm%w, is, ie, js, je, ng, Atm%npz, 1.)
-      call prt_maxmin('SPHUM', Atm%q(:,:,:,1), is, ie, js, je, ng, Atm%npz, 1.)
+      if (Atm%flagstruct%nwat > 0) then
+         call prt_maxmin('SPHUM', Atm%q(:,:,:,1), is, ie, js, je, ng, Atm%npz, 1.)
+      endif
       if ( Atm%flagstruct%nggps_ic .or. Atm%flagstruct%hrrrv3_ic ) then
         call prt_maxmin('TS', Atm%ts, is, ie, js, je, 0, 1, 1.)
       endif
+
+      if (Atm%flagstruct%nwat > 0) then
       if ( Atm%flagstruct%nggps_ic .or. Atm%flagstruct%ecmwf_ic .or. Atm%flagstruct%hrrrv3_ic ) then
         sphum   = get_tracer_index(MODEL_ATMOS, 'sphum')
         liq_wat   = get_tracer_index(MODEL_ATMOS, 'liq_wat')
@@ -343,6 +348,71 @@ contains
         cld_amt = get_tracer_index(MODEL_ATMOS, 'cld_amt')
         liq_aero  = get_tracer_index(MODEL_ATMOS, 'liq_aero')
         ice_aero  = get_tracer_index(MODEL_ATMOS, 'ice_aero')
+
+      endif
+
+        ts1mmr = get_tracer_index(MODEL_ATMOS, 'ts1mmr')
+        if (ts1mmr > 0 ) &
+        call prt_maxmin('ts1mmr', Atm%q(:,:,:,ts1mmr), is, ie, js, je, ng, Atm%npz, 1.)
+
+        ts2mmr = get_tracer_index(MODEL_ATMOS, 'ts2mmr')
+        if (ts2mmr > 0 ) &
+        call prt_maxmin('ts2mmr', Atm%q(:,:,:,ts2mmr), is, ie, js, je, ng, Atm%npz, 1.)
+
+        ts3mmr = get_tracer_index(MODEL_ATMOS, 'ts3mmr')
+        if (ts3mmr > 0 ) &
+        call prt_maxmin('ts3mmr', Atm%q(:,:,:,ts3mmr), is, ie, js, je, ng, Atm%npz, 1.)
+
+        ts4mmr = get_tracer_index(MODEL_ATMOS, 'ts4mmr')
+        if (ts4mmr > 0 ) &
+        call prt_maxmin('ts4mmr', Atm%q(:,:,:,ts4mmr), is, ie, js, je, ng, Atm%npz, 1.)
+
+
+!From GFDL:
+! CO2 tracer
+! Note: atm transport and land model expect moist mmr.
+!       set co2 units: kg/kg  (mass mixing ratio) for both atm and lnd field table entries.
+!       convert atm IC field table entry from dry vmr value to **dry** mmr
+! Note: for atm cold start from constant co2 value, instead of using field table to initialize co2,
+!       create atmos_tracers.res.nc with co2 moist mmr values
+!       WTMAIR = 2.896440E+01 WTMCO2   =  44.00995
+!       CMIP6 Jan 1 1850 co2 = 284.262e-6
+!
+
+        if (cold_start) then
+        ! only do it for cold start free run convert dmf to wmf
+        ! assume 400 dvmr as the constant IC, convert to moist mmr
+           !Atm%q(:,:,:,1:6) = 0. ! test for nwat = 0
+
+           if (ts1mmr > 0 ) then
+              Atm%q(:,:,:,ts1mmr) = 400.*1.e-6*WTMCO2/WTMAIR  !assume tracer transport in dry air
+              call prt_maxmin('ts1 dry mmr', Atm%q(:,:,:,ts1mmr), is, ie, js, je, ng, Atm%npz, 1.)
+           end if
+
+           if (ts2mmr > 0 ) then
+              Atm%q(:,:,:,ts2mmr) = 4.*1.e-6*WTMCO2/WTMAIR  !assume tracer transport in dry air
+              call prt_maxmin('ts2 dry mmr', Atm%q(:,:,:,ts2mmr), is, ie, js, je, ng, Atm%npz, 1.)
+           end if
+
+           if (ts3mmr > 0 ) then
+              if (Atm%flagstruct%nwat > 0) then
+                 Atm%q(:,:,:,ts3mmr) = 400.*1.e-6*WTMCO2/WTMAIR*(1. - sum(Atm%q(:,:,:,1:Atm%flagstruct%nwat),4))  ! kg/kg
+              else
+                 Atm%q(:,:,:,ts3mmr) = 400.*1.e-6*WTMCO2/WTMAIR
+              endif
+              call prt_maxmin('ts3 moist mmr', Atm%q(:,:,:,ts3mmr), is, ie, js, je, ng, Atm%npz, 1.)
+           end if
+
+           if (ts4mmr > 0 ) then
+              if (Atm%flagstruct%nwat > 0) then
+                 Atm%q(:,:,:,ts4mmr) = 4.*1.e-6*WTMCO2/WTMAIR*(1. - sum(Atm%q(:,:,:,1:Atm%flagstruct%nwat),4))  ! kg/kg
+              else
+                 Atm%q(:,:,:,ts4mmr) = 4.*1.e-6*WTMCO2/WTMAIR
+              endif
+              call prt_maxmin('ts4 moist mmr', Atm%q(:,:,:,ts4mmr), is, ie, js, je, ng, Atm%npz, 1.)
+           end if
+
+        end if
 
         if ( liq_wat > 0 ) &
         call prt_maxmin('liq_wat', Atm%q(:,:,:,liq_wat), is, ie, js, je, ng, Atm%npz, 1.)
@@ -655,6 +725,7 @@ contains
       ! set all tracers to an initial profile value
       call set_tracer_profile (MODEL_ATMOS, nt, Atm%q(:,:,:,nt)  )
     enddo
+
     do nt = ntprog+1, ntracers
       call get_tracer_names(MODEL_ATMOS, nt, tracer_name)
       ! set all tracers to an initial profile value
@@ -815,6 +886,8 @@ contains
                            Atm%q(i,j,k,rainwat) + &
                            Atm%q(i,j,k,snowwat) + &
                            Atm%q(i,j,k,graupel)))
+          else if ( Atm%flagstruct%nwat == 0 ) then
+            qt = wt
           else   ! all other values of nwat
             qt = wt/(1. - sum(Atm%q(i,j,k,2:Atm%flagstruct%nwat)))
           endif
@@ -836,6 +909,8 @@ contains
                            Atm%q(i,j,k,rainwat) + &
                            Atm%q(i,j,k,snowwat) + &
                            Atm%q(i,j,k,graupel))
+          else if ( Atm%flagstruct%nwat == 0 ) then
+             qt = wt
           else   ! all other values of nwat
              qt = wt*(1. + sum(Atm%q(i,j,k,2:Atm%flagstruct%nwat)))
           endif
@@ -3199,7 +3274,9 @@ contains
 #ifdef MULTI_GASES
            Atm%pt(i,j,k) = (gz_fv(k)-gz_fv(k+1))/( rdgas*(pn1(i,k+1)-pn1(i,k))*virq(Atm%q(i,j,k,:)) )
 #else
-           Atm%pt(i,j,k) = (gz_fv(k)-gz_fv(k+1))/( rdgas*(pn1(i,k+1)-pn1(i,k))*(1.+zvir*Atm%q(i,j,k,sphum)) )
+           if (sphum > 0) then
+              Atm%pt(i,j,k) = (gz_fv(k)-gz_fv(k+1))/( rdgas*(pn1(i,k+1)-pn1(i,k))*(1.+zvir*Atm%q(i,j,k,sphum)) )
+           endif
 #endif
         enddo
 !------------------------------
@@ -3313,8 +3390,12 @@ contains
 
 ! Add some diagnostics:
   if (.not. Atm%flagstruct%hydrostatic) call p_maxmin('delz_model', Atm%delz, is, ie, js, je, npz, 1.)
-  call p_maxmin('sphum_model', Atm%q(is:ie,js:je,1:npz,sphum), is, ie, js, je, npz, 1.)
-  call p_maxmin('liq_wat_model', Atm%q(is:ie,js:je,1:npz,liq_wat), is, ie, js, je, npz, 1.)
+  if (sphum > 0) then
+   call p_maxmin('sphum_model', Atm%q(is:ie,js:je,1:npz,sphum), is, ie, js, je, npz, 1.)
+  endif
+  if (liq_wat > 0) then
+   call p_maxmin('liq_wat_model', Atm%q(is:ie,js:je,1:npz,liq_wat), is, ie, js, je, npz, 1.)
+  endif
   if (ice_wat .gt. 0) call p_maxmin('ice_wat_model', Atm%q(is:ie,js:je,1:npz,ice_wat), is, ie, js, je, npz, 1.)
   call p_maxmin('PS_model (mb)', Atm%ps(is:ie,js:je), is, ie, js, je, 1, 0.01)
   call p_maxmin('PT_model', Atm%pt(is:ie,js:je,1:npz), is, ie, js, je, npz, 1.)
@@ -3699,9 +3780,9 @@ contains
 
   sphum   = get_tracer_index(MODEL_ATMOS, 'sphum')
 
-   if ( sphum/=1 ) then
-        call mpp_error(FATAL,'SPHUM must be 1st tracer')
-   endif
+  if ( sphum/=1 ) then
+       call mpp_error(FATAL,'SPHUM must be 1st tracer')
+  endif
 
   pk0(1) = ak0(1)**kappa
 
@@ -3798,7 +3879,9 @@ contains
 #ifdef MULTI_GASES
           tp(i,k) = tp(i,k)*virq(qp(i,k,:))
 #else
-          tp(i,k) = tp(i,k)*(1.+zvir*qp(i,k,sphum))
+          if (sphum > 0) then
+             tp(i,k) = tp(i,k)*(1.+zvir*qp(i,k,sphum))
+          endif
 #endif
        enddo
 ! Tracers:
@@ -3916,7 +3999,9 @@ contains
 #ifdef MULTI_GASES
             Atm%pt(i,j,k) = qn1(i,k)/virq(Atm%q(i,j,k,:))
 #else
-            Atm%pt(i,j,k) = qn1(i,k)/(1.+zvir*Atm%q(i,j,k,sphum))
+            if (sphum > 0) then
+               Atm%pt(i,j,k) = qn1(i,k)/(1.+zvir*Atm%q(i,j,k,sphum))
+            endif
 #endif
          enddo
       enddo

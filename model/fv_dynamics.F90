@@ -408,6 +408,7 @@ contains
          goto 911
       endif
 
+      !JianHe: test nwat=0
       if ( nwat==0 ) then
              sphum = 1
            cld_amt = -1   ! to cause trouble if (mis)used
