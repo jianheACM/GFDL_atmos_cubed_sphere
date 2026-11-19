@@ -223,7 +223,7 @@ contains
     character(len=3) :: gn
     character(len=6) :: gnn
 
-    integer :: npts, sphum
+    integer :: npts, sphum, ntco2
     integer, allocatable :: pelist(:), global_pelist(:), smoothed_topo(:)
     real    :: sumpertn
     real    :: zvir
@@ -263,6 +263,8 @@ contains
        npz = Atm(n)%npz
        ntprog = size(Atm(n)%q,4)
        ntdiag = size(Atm(n)%qdiag,4)
+
+       ntco2 = get_tracer_index(MODEL_ATMOS, 'co2')
 
        !1. sort out restart, external_ic, and cold-start (idealized)
        if (Atm(n)%neststruct%nested) then

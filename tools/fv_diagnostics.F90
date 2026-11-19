@@ -4574,16 +4574,22 @@ contains
      chem_scale = 1.e-9
    case ('ppm', 'ppmv')
      if (chem_mw(ichem) <= 0.) cycle
-     chem_scale = 1.e-6 * chem_mw(ichem)/28.9647
+     chem_scale = 1.e-6 * chem_mw(ichem)/WTMAIR
    case ('vmr', 'mol/mol', 'mol mol-1')
      if (chem_mw(ichem) <= 0.) cycle
-     chem_scale = chem_mw(ichem)/28.9647
+     chem_scale = chem_mw(ichem)/WTMAIR
    case default
      if (master) write(*,*) 'Skipping chemical mass diagnostic: ', &
           trim(chem_names(ichem)), ' unsupported units: ', trim(chem_units)
      cycle
    end select
-   call z_sum(is, ie, js, je, km, n_g, delp, q(:,:,:,itracer), chem_column)
+
+   if (trim(chem_tracer_name) == 'co2') then
+      call z_sumd(is, ie, js, je, km, n_g, nwat, delp, q(:,:,:,itracer), q(:,:,:,1:nwat), chem_column)
+   else
+      call z_sum(is, ie, js, je, km, n_g, delp, q(:,:,:,itracer), chem_column)
+   endif
+
    chem_column = chem_column * chem_scale
    chem_total = g_sum(domain, chem_column, is, ie, js, je, n_g, area, 0)
    if (master) write(*,*) 'Total chemical mass (kg) ', trim(chem_names(ichem)), &
@@ -4613,6 +4619,29 @@ contains
  enddo
 
  end subroutine z_sum
+
+ !Calculate total columns using dry air pressure thickness
+ subroutine z_sumd(is, ie, js, je, km, n_g, nwat, delp, q, qwat, sum2)
+ integer, intent(in):: is, ie, js, je,  n_g, nwat, km
+ real, intent(in):: delp(is-n_g:ie+n_g, js-n_g:je+n_g, km)
+ real, intent(in)::    q(is-n_g:ie+n_g, js-n_g:je+n_g, km)
+ real, intent(in)::    qwat(is-n_g:ie+n_g, js-n_g:je+n_g, km, nwat)
+ real, intent(out):: sum2(is:ie,js:je)
+
+ integer i,j,k
+
+ do j=js,je
+    do i=is,ie
+       sum2(i,j) = delp(i,j,1)*(1-sum(qwat(i,j,1,1:nwat)))*q(i,j,1)
+    enddo
+    do k=2,km
+       do i=is,ie
+          sum2(i,j) = sum2(i,j) + delp(i,j,k)*(1-sum(qwat(i,j,k,1:nwat)))*q(i,j,k)
+       enddo
+    enddo
+ enddo
+
+ end subroutine z_sumd
 
 
  real function p_sum(is, ie, js, je, km, n_g, delp, area, domain)
